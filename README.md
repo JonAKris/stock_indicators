@@ -75,6 +75,7 @@ python main.py --verbose
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
+| `TIMEOUT` | No | 180 | Network timeout in seconds |
 | `EODDATA_API_KEY` | **Yes** | – | Your EODData API key |
 | `DB_HOST` | No | `localhost` | PostgreSQL host |
 | `DB_PORT` | No | `5432` | PostgreSQL port |
