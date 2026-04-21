@@ -94,3 +94,4 @@ python main.py --verbose
 - **Exchange filter** – set `EXCHANGES` (or pass `--exchanges`) to limit scope; useful for incremental runs.
 - **Concurrent quotes** – symbol-level quote history is fetched in parallel (`MAX_WORKERS` threads), each with its own DB connection from the pool.
 - **Selective steps** – use `--steps` to re-run only the parts that need refreshing.
+- **AI Code Generation** 100% coded using Claude Code.
