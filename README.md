@@ -79,7 +79,7 @@ python main.py --verbose
 | `EODDATA_API_KEY` | **Yes** | – | Your EODData API key |
 | `DB_HOST` | No | `localhost` | PostgreSQL host |
 | `DB_PORT` | No | `5432` | PostgreSQL port |
-| `DB_NAME` | No | `stockdb` | Database name |
+| `DB_NAME` | No | `stocks` | Database name |
 | `DB_USER` | No | `stockman` | Database user |
 | `DB_PASS` | **Yes** | – | Database password |
 | `EXCHANGES` | No | *(all)* | Comma-separated exchange codes to sync |
