@@ -4,3 +4,4 @@ __pycache__/
 cmds.txt
 v1.json
 .env
+.streamlit/
