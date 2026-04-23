@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict BlRg0GTKK2r02qVScOdDADbdlTHyHt7XX4sfgSn1IDGDHZ5GL3J2tZ7S4l78G9c
+\restrict xdhn7d2cjeXQTKoKaRyY4vH1pEwklXWZlBc08dvMKpDhU65mrsnzU5Aq8eeOH0q
 
 -- Dumped from database version 16.13 (Ubuntu 16.13-1.pgdg24.04+1)
 -- Dumped by pg_dump version 18.3 (Ubuntu 18.3-1.pgdg24.04+1)
@@ -167,33 +167,33 @@ ALTER TABLE public.symbol OWNER TO postgres;
 CREATE TABLE public.symbol_fundamental (
     exchange_code text NOT NULL,
     symbol_code text NOT NULL,
-    market_capitalization numeric(10,4),
-    ebitda numeric(10,4),
-    peg numeric(10,4),
-    book_value numeric(10,4),
-    dividend_per_share numeric(10,4),
-    dividend_yield numeric(10,4),
-    earnings_per_share numeric(10,4),
-    revenue_per_share numeric(10,4),
-    price_to_sales numeric(10,4),
-    price_to_book numeric(10,4),
-    beta numeric(10,4),
+    market_capitalization numeric(12,4),
+    ebitda numeric(12,4),
+    peg numeric(12,4),
+    book_value numeric(12,4),
+    dividend_per_share numeric(12,4),
+    dividend_yield numeric(12,4),
+    earnings_per_share numeric(12,4),
+    revenue_per_share numeric(12,4),
+    price_to_sales numeric(12,4),
+    price_to_book numeric(12,4),
+    beta numeric(12,4),
     shares_outstanding bigint,
     dividend_date date,
-    gross_margin numeric(10,4),
-    profit_margin numeric(10,4),
-    operating_margin numeric(10,4),
-    return_on_assets numeric(10,4),
-    return_on_equity numeric(10,4),
-    revenue numeric(10,4),
-    gross_profit numeric(10,4),
-    trailing_pe numeric(10,4),
-    forward_pe numeric(10,4),
-    total_cash numeric(10,4),
-    total_cash_per_share numeric(10,4),
-    total_debt numeric(10,4),
-    total_debt_to_equity numeric(10,4),
-    book_value_per_share numeric(10,4)
+    gross_margin numeric(12,4),
+    profit_margin numeric(12,4),
+    operating_margin numeric(12,4),
+    return_on_assets numeric(12,4),
+    return_on_equity numeric(12,4),
+    revenue numeric(12,4),
+    gross_profit numeric(12,4),
+    trailing_pe numeric(12,4),
+    forward_pe numeric(12,4),
+    total_cash numeric(12,4),
+    total_cash_per_share numeric(12,4),
+    total_debt numeric(12,4),
+    total_debt_to_equity numeric(12,4),
+    book_value_per_share numeric(12,4)
 );
 
 
@@ -466,5 +466,5 @@ ALTER TABLE ONLY public.exchanges
 -- PostgreSQL database dump complete
 --
 
-\unrestrict BlRg0GTKK2r02qVScOdDADbdlTHyHt7XX4sfgSn1IDGDHZ5GL3J2tZ7S4l78G9c
+\unrestrict xdhn7d2cjeXQTKoKaRyY4vH1pEwklXWZlBc08dvMKpDhU65mrsnzU5Aq8eeOH0q
 
