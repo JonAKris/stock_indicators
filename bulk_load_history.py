@@ -385,9 +385,6 @@ class EodDataClient:
                 log.error("Auth rejected (%d). Check EOD_API_KEY.", resp.status_code)
                 return []
             if resp.status_code == 404:
-                log.warning("404 for %s:%s — exchange/symbol may be invalid, "
-                            "or set EOD_REST_HISTORY_PATH if the API path moved.",
-                            exchange, symbol)
                 return []
             if resp.status_code == 429:
                 wait = min(2 ** attempt, 30)
