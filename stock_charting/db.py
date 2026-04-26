@@ -24,7 +24,7 @@ class Database:
             port=int(os.getenv("DB_PORT", "5432")),
             dbname=os.getenv("DB_NAME", "stockman"),
             user=os.getenv("DB_USER", "stockman"),
-            password=os.getenv("DB_PASSWORD", ""),
+            password=os.getenv("DB_PASS", ""),
         )
 
     # ---- connection helpers ------------------------------------------------
