@@ -22,7 +22,7 @@ class Database:
             maxconn=int(os.getenv("DB_MAX_CONN", "5")),
             host=os.getenv("DB_HOST", "localhost"),
             port=int(os.getenv("DB_PORT", "5432")),
-            dbname=os.getenv("DB_NAME", "stockman"),
+            dbname=os.getenv("DB_NAME", "stocks"),
             user=os.getenv("DB_USER", "stockman"),
             password=os.getenv("DB_PASS", ""),
         )
