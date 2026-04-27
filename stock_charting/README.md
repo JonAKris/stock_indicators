@@ -20,7 +20,7 @@ Open http://localhost:8050.
 The schema must be loaded first. From the project root:
 
 ```bash
-psql -U stockman -d stockman -f schema.sql
+psql -U stockman -d stocks -f schema.sql
 ```
 
 Make sure the `symbol` table is populated — the trade form's symbol dropdown
