@@ -32,14 +32,14 @@ load_dotenv()
 
 
 def build_db_url() -> str:
-    """Build a SQLAlchemy URL from .env. Prefers DATABASE_URL, falls back to PG* vars."""
+    """Build a SQLAlchemy URL from .env. Prefers DATABASE_URL, falls back to DB_* vars."""
     if url := os.getenv("DATABASE_URL"):
         return url
     user = os.getenv("DB_USER", "stockman")
     pw = os.getenv("DB_PASS", "")
     host = os.getenv("DB_HOST", "localhost")
     port = os.getenv("DB_PORT", "5432")
-    db = os.getenv("DB_NAME", "stocks")
+    db = os.getenv("DB_NAME", "stockman")
     return f"postgresql+psycopg2://{user}:{pw}@{host}:{port}/{db}"
 
 
@@ -278,6 +278,108 @@ def banner(msg: str, kind: str = "info") -> html.Div:
     })
 
 
+def held_quantity(portfolio_id: int, exchange_code: str, symbol_code: str) -> Decimal:
+    """Net split-adjusted holding for a portfolio/symbol. Used as oversell guard."""
+    df = q("""
+        SELECT COALESCE(SUM(CASE WHEN side = 'BUY' THEN adj_quantity
+                                 ELSE -adj_quantity END), 0) AS qty
+        FROM public.split_adjusted_trades
+        WHERE portfolio_id = :pid AND exchange_code = :exch AND symbol_code = :sym
+    """, pid=portfolio_id, exch=exchange_code, sym=symbol_code)
+    return Decimal(str(df.iloc[0]["qty"])) if not df.empty else Decimal(0)
+
+
+def validate_trade(pf_id, sym_val, side, date, qty, price, fees,
+                   editing_trade_id: int | None = None) -> str | None:
+    """Return error message string, or None if valid. Used for both create and edit."""
+    if not pf_id:
+        return "Portfolio is required."
+    if not sym_val:
+        return "Symbol is required."
+    if "|" not in str(sym_val):
+        return "Symbol must be in 'EXCHANGE|SYMBOL' format."
+    if side not in ("BUY", "SELL"):
+        return "Side must be BUY or SELL."
+    if not date:
+        return "Trade date is required."
+    try:
+        parsed_date = pd.to_datetime(date).date()
+    except (ValueError, TypeError):
+        return f"Invalid date: {date!r}."
+    if parsed_date > pd.Timestamp.today().date():
+        return f"Trade date {parsed_date} is in the future."
+    try:
+        qty_d = Decimal(str(qty)) if qty is not None else None
+    except Exception:
+        return f"Quantity is not a number: {qty!r}."
+    if qty_d is None or qty_d <= 0:
+        return "Quantity must be greater than zero."
+    try:
+        price_d = Decimal(str(price)) if price is not None else None
+    except Exception:
+        return f"Price is not a number: {price!r}."
+    if price_d is None or price_d < 0:
+        return "Price must be zero or positive."
+    if fees is not None:
+        try:
+            fees_d = Decimal(str(fees))
+        except Exception:
+            return f"Fees is not a number: {fees!r}."
+        if fees_d < 0:
+            return "Fees cannot be negative."
+    # Oversell guard for SELL
+    if side == "SELL":
+        exch, sym = str(sym_val).split("|", 1)
+        held = held_quantity(int(pf_id), exch, sym)
+        # If editing an existing SELL, add its current qty back to held before checking
+        if editing_trade_id is not None:
+            existing = q("""
+                SELECT side, quantity FROM public.trades WHERE id = :id
+            """, id=editing_trade_id)
+            if not existing.empty and existing.iloc[0]["side"] == "SELL":
+                held += Decimal(str(existing.iloc[0]["quantity"]))
+        if qty_d > held:
+            return (f"Oversell: trying to sell {qty_d} but portfolio only holds "
+                    f"{held} shares of {sym} on {exch}.")
+    return None
+
+
+def validate_cash(pf_id, ttype, date, amount) -> str | None:
+    if not pf_id:
+        return "Portfolio is required."
+    if ttype not in ("DEPOSIT", "WITHDRAWAL", "DIVIDEND", "FEE", "INTEREST", "FX_ADJUST"):
+        return f"Invalid type: {ttype!r}."
+    if not date:
+        return "Date is required."
+    try:
+        pd.to_datetime(date).date()
+    except (ValueError, TypeError):
+        return f"Invalid date: {date!r}."
+    if amount is None:
+        return "Amount is required."
+    try:
+        Decimal(str(amount))
+    except Exception:
+        return f"Amount is not a number: {amount!r}."
+    return None
+
+
+def validate_portfolio(name, ccy, cash) -> str | None:
+    if not name or not str(name).strip():
+        return "Name is required."
+    if len(str(name)) > 100:
+        return "Name is too long (max 100 chars)."
+    if ccy and len(str(ccy)) != 3:
+        return "Base currency must be a 3-letter code (e.g. USD)."
+    if cash is not None:
+        try:
+            if Decimal(str(cash)) < 0:
+                return "Initial cash cannot be negative."
+        except Exception:
+            return f"Initial cash is not a number: {cash!r}."
+    return None
+
+
 def _fmt_value(v: Any) -> str:
     """Format a single field value for display in info panels."""
     if v is None or (isinstance(v, float) and pd.isna(v)):
@@ -511,7 +613,10 @@ def portfolios_tab() -> html.Div:
         html.P("Edit name, description, base currency, initial cash, or active flag inline. "
                "Press Enter to commit. To delete: uncheck is_active (soft delete).",
                style={"color": "#666", "fontSize": "12px"}),
-        html.Div(id="portfolios-table-wrap"),
+        html.Div(id="portfolios-table-wrap", children=[
+            dash_table.DataTable(id="portfolios-table", data=[], columns=[],
+                                 row_selectable="multi"),
+        ]),
         html.Div([
             html.Button("🗑 Delete selected (hard delete + cascades trades)",
                         id="pf-delete-btn", n_clicks=0,
@@ -579,9 +684,29 @@ def trades_tab() -> html.Div:
 
         html.H4("Trade history (editable)"),
         html.P("Edit trade_date, side, quantity, price, fees, or notes inline. "
-               "Select rows and click Delete to remove.",
+               "Select rows to bulk-edit a field or delete.",
                style={"color": "#666", "fontSize": "12px"}),
-        html.Div(id="trades-table-wrap"),
+        html.Div([
+            html.Span("Bulk set field on selected: ",
+                      style={"fontSize": "13px", "marginRight": "6px"}),
+            dcc.Dropdown(id="tr-bulk-field",
+                         options=[{"label": "side", "value": "side"},
+                                  {"label": "currency", "value": "currency"},
+                                  {"label": "fees", "value": "fees"},
+                                  {"label": "notes", "value": "notes"}],
+                         placeholder="Field",
+                         style={"width": "140px", "display": "inline-block",
+                                "verticalAlign": "middle", "marginRight": "6px"}),
+            dcc.Input(id="tr-bulk-value", placeholder="New value",
+                      style={"width": "200px", "marginRight": "6px"}),
+            html.Button("Apply to selected", id="tr-bulk-apply", n_clicks=0),
+        ], style={"padding": "8px", "backgroundColor": "#f8f8f8",
+                  "border": "1px solid #e4e4e4", "borderRadius": "4px",
+                  "marginBottom": "8px"}),
+        html.Div(id="trades-table-wrap", children=[
+            dash_table.DataTable(id="trades-table", data=[], columns=[],
+                                 row_selectable="multi"),
+        ]),
         html.Button("🗑 Delete selected", id="tr-delete-btn", n_clicks=0,
                     style={"marginTop": "8px", "backgroundColor": "#fee",
                            "border": "1px solid #c44"}),
@@ -591,12 +716,23 @@ def trades_tab() -> html.Div:
 def positions_tab() -> html.Div:
     return html.Div([
         html.H3("Open positions"),
+        html.Div(id="positions-banner"),
         html.Div([
             html.Label("Portfolio:", style={"marginRight": "8px"}),
             dcc.Dropdown(id="pos-pf-filter", options=[], placeholder="All portfolios",
                          style={"width": "280px", "display": "inline-block"}),
         ], style={"marginBottom": "12px"}),
-        html.Div(id="positions-table-wrap"),
+        html.P("Click a position row to see and edit the underlying trades.",
+               style={"color": "#666", "fontSize": "12px"}),
+        html.Div(id="positions-table-wrap", children=[
+            # Placeholder so callbacks listening to positions-table have a target
+            # at app-load time. Real table is injected by render_positions.
+            dash_table.DataTable(id="positions-table", data=[], columns=[],
+                                 row_selectable="single"),
+        ]),
+        html.Div(id="position-detail", style={"marginTop": "20px"}),
+        dcc.ConfirmDialog(id="confirm-delete-pos-trade",
+                          message="Delete selected trade(s)? This cannot be undone."),
     ])
 
 
@@ -632,7 +768,26 @@ def cash_tab() -> html.Div:
                       "border": "1px solid #ddd", "borderRadius": "4px", "marginTop": "6px"}),
         ], style={"marginBottom": "16px"}),
 
-        html.Div(id="cash-table-wrap"),
+        html.Div([
+            html.Span("Bulk set field on selected: ",
+                      style={"fontSize": "13px", "marginRight": "6px"}),
+            dcc.Dropdown(id="ct-bulk-field",
+                         options=[{"label": "type", "value": "type"},
+                                  {"label": "currency", "value": "currency"},
+                                  {"label": "notes", "value": "notes"}],
+                         placeholder="Field",
+                         style={"width": "140px", "display": "inline-block",
+                                "verticalAlign": "middle", "marginRight": "6px"}),
+            dcc.Input(id="ct-bulk-value", placeholder="New value",
+                      style={"width": "200px", "marginRight": "6px"}),
+            html.Button("Apply to selected", id="ct-bulk-apply", n_clicks=0),
+        ], style={"padding": "8px", "backgroundColor": "#f8f8f8",
+                  "border": "1px solid #e4e4e4", "borderRadius": "4px",
+                  "marginBottom": "8px"}),
+        html.Div(id="cash-table-wrap", children=[
+            dash_table.DataTable(id="cash-table", data=[], columns=[],
+                                 row_selectable="multi"),
+        ]),
         html.Button("🗑 Delete selected", id="ct-delete-btn", n_clicks=0,
                     style={"marginTop": "8px", "backgroundColor": "#fee",
                            "border": "1px solid #c44"}),
@@ -721,6 +876,12 @@ app.layout = html.Div([
         dcc.Tab(label="Cash", value="cash", children=cash_tab()),
     ]),
     dcc.Store(id="refresh-trigger", data=0),
+    dcc.ConfirmDialog(id="confirm-delete-pf",
+                      message="Delete selected portfolio(s)? This cascades to all their trades and cash transactions and cannot be undone."),
+    dcc.ConfirmDialog(id="confirm-delete-tr",
+                      message="Delete selected trade(s)? This cannot be undone."),
+    dcc.ConfirmDialog(id="confirm-delete-ct",
+                      message="Delete selected cash transaction(s)? This cannot be undone."),
 ], style={"maxWidth": "1400px", "margin": "0 auto", "padding": "20px",
           "fontFamily": "system-ui, sans-serif"})
 
@@ -794,16 +955,19 @@ def render_portfolio_tables(_n: int, _tab: str):
     prevent_initial_call=True,
 )
 def create_portfolio(n_clicks, name, desc, ccy, cash, trigger):
-    if not n_clicks or not name:
-        return banner("Enter a name to create a portfolio.", "error"), no_update
+    if not n_clicks:
+        return no_update, no_update
+    err = validate_portfolio(name, ccy, cash)
+    if err:
+        return banner(err, "error"), no_update
     try:
         exec_sql("""
             INSERT INTO public.portfolios (name, description, base_currency, initial_cash)
             VALUES (:name, :desc, :ccy, :cash)
-        """, name=name, desc=desc, ccy=ccy or "USD", cash=cash or 0)
+        """, name=str(name).strip(), desc=desc, ccy=ccy or "USD", cash=cash or 0)
         return banner(f"Created portfolio “{name}”.", "success"), trigger + 1
     except Exception as e:
-        return banner(f"Error: {e}", "error"), no_update
+        return banner(f"Database error: {e}", "error"), no_update
 
 
 @app.callback(
@@ -817,38 +981,69 @@ def create_portfolio(n_clicks, name, desc, ccy, cash, trigger):
 def edit_portfolio(data, data_prev, trigger):
     if not data_prev or data == data_prev:
         return no_update, no_update
-    # Find the changed row(s)
     by_id_prev = {r["id"]: r for r in data_prev}
     changed = [r for r in data if by_id_prev.get(r["id"]) and by_id_prev[r["id"]] != r]
     if not changed:
         return no_update, no_update
+    errors = []
+    valid_rows = []
+    for row in changed:
+        err = validate_portfolio(row.get("name"), row.get("base_currency"),
+                                  row.get("initial_cash"))
+        if err:
+            errors.append(f"Portfolio #{row['id']}: {err}")
+        else:
+            valid_rows.append(row)
     try:
-        for row in changed:
+        for row in valid_rows:
             exec_sql("""
                 UPDATE public.portfolios
                 SET name = :name, description = :desc, base_currency = :ccy,
                     initial_cash = :cash, is_active = :active
                 WHERE id = :id
-            """, id=row["id"], name=row["name"], desc=row.get("description"),
-                ccy=row["base_currency"], cash=row["initial_cash"],
-                active=bool(row["is_active"]))
-        return banner(f"Updated {len(changed)} portfolio(s).", "success"), trigger + 1
+            """, id=row["id"], name=str(row["name"]).strip(),
+                desc=row.get("description"), ccy=row["base_currency"],
+                cash=row["initial_cash"], active=bool(row["is_active"]))
     except Exception as e:
-        return banner(f"Error: {e}", "error"), trigger + 1  # refresh to show actual state
+        errors.append(f"Database error: {e}")
+    if errors:
+        return banner(" • ".join(errors), "error"), trigger + 1
+    return banner(f"Updated {len(valid_rows)} portfolio(s).", "success"), trigger + 1
+
+
+@app.callback(
+    Output("confirm-delete-pf", "displayed"),
+    Output("confirm-delete-pf", "message"),
+    Output("portfolios-banner", "children", allow_duplicate=True),
+    Input("pf-delete-btn", "n_clicks"),
+    State("portfolios-table", "selected_rows"),
+    State("portfolios-table", "data"),
+    prevent_initial_call=True,
+)
+def confirm_delete_portfolios(n_clicks, selected, data):
+    if not n_clicks:
+        return False, no_update, no_update
+    if not selected:
+        return False, no_update, banner("Select rows first.", "error")
+    names = [data[i].get("name") or f"#{data[i]['id']}" for i in selected]
+    msg = (f"Permanently delete {len(selected)} portfolio(s): "
+           f"{', '.join(names[:5])}{'…' if len(names) > 5 else ''}? "
+           f"This cascades to ALL their trades and cash transactions and cannot be undone.")
+    return True, msg, no_update
 
 
 @app.callback(
     Output("portfolios-banner", "children", allow_duplicate=True),
     Output("refresh-trigger", "data", allow_duplicate=True),
-    Input("pf-delete-btn", "n_clicks"),
+    Input("confirm-delete-pf", "submit_n_clicks"),
     State("portfolios-table", "selected_rows"),
     State("portfolios-table", "data"),
     State("refresh-trigger", "data"),
     prevent_initial_call=True,
 )
-def delete_portfolios(n_clicks, selected, data, trigger):
-    if not n_clicks or not selected:
-        return banner("Select rows first.", "error"), no_update
+def delete_portfolios(submit_n, selected, data, trigger):
+    if not submit_n or not selected:
+        return no_update, no_update
     ids = [data[i]["id"] for i in selected]
     try:
         with conn() as c:
@@ -856,7 +1051,7 @@ def delete_portfolios(n_clicks, selected, data, trigger):
                 c.execute(text("DELETE FROM public.portfolios WHERE id = :id"), {"id": pid})
         return banner(f"Deleted {len(ids)} portfolio(s) and their trades.", "success"), trigger + 1
     except Exception as e:
-        return banner(f"Error: {e}", "error"), no_update
+        return banner(f"Database error: {e}", "error"), no_update
 
 
 # ---------------------------------------------------------------------------
@@ -943,8 +1138,9 @@ def render_trades(_n, pf_id, _tab):
 def create_trade(n, pf_id, sym_val, side, date, qty, price, fees, notes, trigger):
     if not n:
         return no_update, no_update
-    if not all([pf_id, sym_val, side, date, qty, price is not None]):
-        return banner("Fill in portfolio, symbol, side, date, quantity, and price.", "error"), no_update
+    err = validate_trade(pf_id, sym_val, side, date, qty, price, fees)
+    if err:
+        return banner(err, "error"), no_update
     try:
         exch, sym = sym_val.split("|", 1)
         exec_sql("""
@@ -956,7 +1152,7 @@ def create_trade(n, pf_id, sym_val, side, date, qty, price, fees, notes, trigger
             qty=qty, price=price, fees=fees or 0, notes=notes)
         return banner(f"Recorded {side} {qty} {sym} @ {price}.", "success"), trigger + 1
     except Exception as e:
-        return banner(f"Error: {e}", "error"), no_update
+        return banner(f"Database error: {e}", "error"), no_update
 
 
 @app.callback(
@@ -974,33 +1170,64 @@ def edit_trade(data, data_prev, trigger):
     changed = [r for r in data if by_id_prev.get(r["id"]) and by_id_prev[r["id"]] != r]
     if not changed:
         return no_update, no_update
+    errors = []
+    valid_rows = []
+    for row in changed:
+        sym_val = f"{row['exchange_code']}|{row['symbol_code']}"
+        err = validate_trade(row["portfolio_id"], sym_val, row["side"],
+                             row["trade_date"], row["quantity"], row["price"],
+                             row.get("fees"), editing_trade_id=row["id"])
+        if err:
+            errors.append(f"Trade #{row['id']}: {err}")
+        else:
+            valid_rows.append(row)
     try:
-        for row in changed:
+        for row in valid_rows:
             exec_sql("""
                 UPDATE public.trades
                 SET trade_date = :dt, side = :side, quantity = :qty,
                     price = :price, fees = :fees, currency = :ccy, notes = :notes
                 WHERE id = :id
             """, id=row["id"], dt=row["trade_date"], side=row["side"],
-                qty=row["quantity"], price=row["price"], fees=row["fees"],
+                qty=row["quantity"], price=row["price"], fees=row["fees"] or 0,
                 ccy=row.get("currency"), notes=row.get("notes"))
-        return banner(f"Updated {len(changed)} trade(s).", "success"), trigger + 1
     except Exception as e:
-        return banner(f"Error: {e}", "error"), trigger + 1
+        errors.append(f"Database error: {e}")
+    if errors:
+        return banner(" • ".join(errors), "error"), trigger + 1
+    return banner(f"Updated {len(valid_rows)} trade(s).", "success"), trigger + 1
+
+
+@app.callback(
+    Output("confirm-delete-tr", "displayed"),
+    Output("confirm-delete-tr", "message"),
+    Output("trades-banner", "children", allow_duplicate=True),
+    Input("tr-delete-btn", "n_clicks"),
+    State("trades-table", "selected_rows"),
+    State("trades-table", "data"),
+    prevent_initial_call=True,
+)
+def confirm_delete_trades(n, selected, data):
+    if not n:
+        return False, no_update, no_update
+    if not selected:
+        return False, no_update, banner("Select rows first.", "error")
+    return True, (f"Delete {len(selected)} trade(s)? This cannot be undone "
+                  "and will affect realized P&L and current positions."), no_update
 
 
 @app.callback(
     Output("trades-banner", "children", allow_duplicate=True),
     Output("refresh-trigger", "data", allow_duplicate=True),
-    Input("tr-delete-btn", "n_clicks"),
+    Input("confirm-delete-tr", "submit_n_clicks"),
     State("trades-table", "selected_rows"),
     State("trades-table", "data"),
     State("refresh-trigger", "data"),
     prevent_initial_call=True,
 )
-def delete_trades(n, selected, data, trigger):
-    if not n or not selected:
-        return banner("Select rows first.", "error"), no_update
+def delete_trades(submit_n, selected, data, trigger):
+    if not submit_n or not selected:
+        return no_update, no_update
     ids = [data[i]["id"] for i in selected]
     try:
         with conn() as c:
@@ -1008,7 +1235,53 @@ def delete_trades(n, selected, data, trigger):
                 c.execute(text("DELETE FROM public.trades WHERE id = :id"), {"id": tid})
         return banner(f"Deleted {len(ids)} trade(s).", "success"), trigger + 1
     except Exception as e:
-        return banner(f"Error: {e}", "error"), no_update
+        return banner(f"Database error: {e}", "error"), no_update
+
+
+@app.callback(
+    Output("trades-banner", "children", allow_duplicate=True),
+    Output("refresh-trigger", "data", allow_duplicate=True),
+    Input("tr-bulk-apply", "n_clicks"),
+    State("trades-table", "selected_rows"),
+    State("trades-table", "data"),
+    State("tr-bulk-field", "value"),
+    State("tr-bulk-value", "value"),
+    State("refresh-trigger", "data"),
+    prevent_initial_call=True,
+)
+def bulk_apply_trades(n, selected, data, field, value, trigger):
+    if not n:
+        return no_update, no_update
+    if not selected:
+        return banner("Select rows first.", "error"), no_update
+    if not field:
+        return banner("Pick a field to set.", "error"), no_update
+    if value in (None, ""):
+        return banner("Enter a value.", "error"), no_update
+    # Validate field-specific values
+    if field == "side" and value not in ("BUY", "SELL"):
+        return banner("Side must be BUY or SELL.", "error"), no_update
+    if field == "fees":
+        try:
+            if Decimal(str(value)) < 0:
+                return banner("Fees cannot be negative.", "error"), no_update
+        except Exception:
+            return banner(f"Fees is not a number: {value!r}.", "error"), no_update
+    if field == "currency" and len(str(value)) != 3:
+        return banner("Currency must be a 3-letter code.", "error"), no_update
+
+    ids = [data[i]["id"] for i in selected]
+    column_sql = {"side": "side", "currency": "currency",
+                  "fees": "fees", "notes": "notes"}[field]
+    try:
+        with conn() as c:
+            for tid in ids:
+                c.execute(text(
+                    f"UPDATE public.trades SET {column_sql} = :val WHERE id = :id"),
+                    {"val": value, "id": tid})
+        return banner(f"Updated {field} on {len(ids)} trade(s).", "success"), trigger + 1
+    except Exception as e:
+        return banner(f"Database error: {e}", "error"), no_update
 
 
 # ---------------------------------------------------------------------------
@@ -1027,7 +1300,231 @@ def render_positions(_n, pf_id, _tab):
     for c in money_cols:
         if c in df.columns:
             df[c] = df[c].apply(lambda v: f"{v:,.4f}" if pd.notna(v) else "")
-    return df_to_table(df, "positions-table")
+    return dash_table.DataTable(
+        id="positions-table",
+        data=df.to_dict("records"),
+        columns=[{"name": c, "id": c} for c in df.columns],
+        page_size=15,
+        sort_action="native",
+        filter_action="native",
+        row_selectable="single",
+        style_table={"overflowX": "auto"},
+        style_cell={"fontFamily": "system-ui, sans-serif", "fontSize": "13px",
+                    "padding": "6px"},
+        style_header={"fontWeight": "bold", "backgroundColor": "#f4f4f4"},
+        style_data_conditional=[
+            {"if": {"state": "selected"},
+             "backgroundColor": "#e7f3ff",
+             "border": "1px solid #6cf"},
+        ],
+    )
+
+
+def _position_trades(portfolio_id: int, exchange_code: str, symbol_code: str) -> pd.DataFrame:
+    return q("""
+        SELECT id, trade_date, side, quantity, price, fees, currency, notes, updated_at
+        FROM public.trades
+        WHERE portfolio_id = :pid AND exchange_code = :exch AND symbol_code = :sym
+        ORDER BY trade_date DESC, id DESC
+    """, pid=portfolio_id, exch=exchange_code, sym=symbol_code)
+
+
+@app.callback(
+    Output("position-detail", "children"),
+    Input("positions-table", "selected_rows"),
+    Input("positions-table", "data"),
+    Input("refresh-trigger", "data"),
+)
+def render_position_detail(selected, data, _trigger):
+    if not selected or not data:
+        return None
+    row = data[selected[0]]
+    pid = row["portfolio_id"]
+    exch = row["exchange_code"]
+    sym = row["symbol_code"]
+    qty_held = row.get("quantity", 0)
+    trades = _position_trades(pid, exch, sym)
+    table = dash_table.DataTable(
+        id="position-trades-table",
+        data=trades.to_dict("records"),
+        columns=[
+            {"name": "id", "id": "id", "editable": False},
+            {"name": "trade_date", "id": "trade_date", "editable": True},
+            {"name": "side", "id": "side", "editable": True, "presentation": "dropdown"},
+            {"name": "quantity", "id": "quantity", "editable": True, "type": "numeric"},
+            {"name": "price", "id": "price", "editable": True, "type": "numeric"},
+            {"name": "fees", "id": "fees", "editable": True, "type": "numeric"},
+            {"name": "currency", "id": "currency", "editable": True},
+            {"name": "notes", "id": "notes", "editable": True},
+            {"name": "updated_at", "id": "updated_at", "editable": False},
+        ],
+        dropdown={"side": {"options": SIDE_OPTS}},
+        editable=True,
+        row_selectable="multi",
+        page_size=10,
+        sort_action="native",
+        style_table={"overflowX": "auto"},
+        style_cell={"fontFamily": "system-ui, sans-serif", "fontSize": "13px",
+                    "padding": "6px"},
+        style_header={"fontWeight": "bold", "backgroundColor": "#f4f4f4"},
+        style_data_conditional=[
+            {"if": {"filter_query": "{side} = 'BUY'", "column_id": "side"},
+             "color": "#0a0", "fontWeight": "bold"},
+            {"if": {"filter_query": "{side} = 'SELL'", "column_id": "side"},
+             "color": "#c00", "fontWeight": "bold"},
+        ],
+    )
+    return html.Div([
+        html.H4(f"{exch}:{sym} — trades in “{row.get('portfolio_name', f'#{pid}')}”",
+                style={"marginBottom": "4px"}),
+        html.Div(f"Currently holding {qty_held} shares.",
+                 style={"color": "#666", "marginBottom": "8px", "fontSize": "13px"}),
+        html.Div([
+            html.Button(f"📤 Close position (sell all {qty_held})",
+                        id="pos-close-btn", n_clicks=0,
+                        style={"marginRight": "8px"}),
+            html.Button("🗑 Delete selected trades",
+                        id="pos-trade-delete-btn", n_clicks=0,
+                        style={"backgroundColor": "#fee", "border": "1px solid #c44"}),
+        ], style={"marginBottom": "8px"}),
+        # Hidden stores for the close-position context
+        dcc.Store(id="pos-context",
+                  data={"portfolio_id": pid, "exchange_code": exch,
+                        "symbol_code": sym, "quantity": str(qty_held)}),
+        table,
+    ], style={"border": "1px solid #ddd", "borderRadius": "4px",
+              "padding": "12px", "backgroundColor": "#fafafa"})
+
+
+@app.callback(
+    Output("positions-banner", "children", allow_duplicate=True),
+    Output("refresh-trigger", "data", allow_duplicate=True),
+    Input("position-trades-table", "data"),
+    State("position-trades-table", "data_previous"),
+    State("pos-context", "data"),
+    State("refresh-trigger", "data"),
+    prevent_initial_call=True,
+)
+def edit_position_trades(data, data_prev, ctx, trigger):
+    if not data_prev or data == data_prev or not ctx:
+        return no_update, no_update
+    by_id_prev = {r["id"]: r for r in data_prev}
+    changed = [r for r in data if by_id_prev.get(r["id"]) and by_id_prev[r["id"]] != r]
+    if not changed:
+        return no_update, no_update
+    pid = ctx["portfolio_id"]
+    exch = ctx["exchange_code"]
+    sym = ctx["symbol_code"]
+    sym_val = f"{exch}|{sym}"
+    errors = []
+    valid_rows = []
+    for row in changed:
+        err = validate_trade(pid, sym_val, row["side"], row["trade_date"],
+                             row["quantity"], row["price"], row.get("fees"),
+                             editing_trade_id=row["id"])
+        if err:
+            errors.append(f"Trade #{row['id']}: {err}")
+        else:
+            valid_rows.append(row)
+    try:
+        for row in valid_rows:
+            exec_sql("""
+                UPDATE public.trades
+                SET trade_date = :dt, side = :side, quantity = :qty,
+                    price = :price, fees = :fees, currency = :ccy, notes = :notes
+                WHERE id = :id
+            """, id=row["id"], dt=row["trade_date"], side=row["side"],
+                qty=row["quantity"], price=row["price"], fees=row["fees"] or 0,
+                ccy=row.get("currency"), notes=row.get("notes"))
+    except Exception as e:
+        errors.append(f"Database error: {e}")
+    if errors:
+        return banner(" • ".join(errors), "error"), trigger + 1
+    return banner(f"Updated {len(valid_rows)} trade(s).", "success"), trigger + 1
+
+
+@app.callback(
+    Output("confirm-delete-pos-trade", "displayed"),
+    Output("confirm-delete-pos-trade", "message"),
+    Output("positions-banner", "children", allow_duplicate=True),
+    Input("pos-trade-delete-btn", "n_clicks"),
+    State("position-trades-table", "selected_rows"),
+    prevent_initial_call=True,
+)
+def confirm_delete_position_trades(n, selected):
+    if not n:
+        return False, no_update, no_update
+    if not selected:
+        return False, no_update, banner("Select trades first.", "error")
+    return True, f"Delete {len(selected)} trade(s)? This cannot be undone.", no_update
+
+
+@app.callback(
+    Output("positions-banner", "children", allow_duplicate=True),
+    Output("refresh-trigger", "data", allow_duplicate=True),
+    Input("confirm-delete-pos-trade", "submit_n_clicks"),
+    State("position-trades-table", "selected_rows"),
+    State("position-trades-table", "data"),
+    State("refresh-trigger", "data"),
+    prevent_initial_call=True,
+)
+def delete_position_trades(submit_n, selected, data, trigger):
+    if not submit_n or not selected:
+        return no_update, no_update
+    ids = [data[i]["id"] for i in selected]
+    try:
+        with conn() as c:
+            for tid in ids:
+                c.execute(text("DELETE FROM public.trades WHERE id = :id"), {"id": tid})
+        return banner(f"Deleted {len(ids)} trade(s).", "success"), trigger + 1
+    except Exception as e:
+        return banner(f"Database error: {e}", "error"), no_update
+
+
+@app.callback(
+    Output("positions-banner", "children", allow_duplicate=True),
+    Output("refresh-trigger", "data", allow_duplicate=True),
+    Input("pos-close-btn", "n_clicks"),
+    State("pos-context", "data"),
+    State("refresh-trigger", "data"),
+    prevent_initial_call=True,
+)
+def close_position(n, ctx, trigger):
+    if not n or not ctx:
+        return no_update, no_update
+    pid = ctx["portfolio_id"]
+    exch = ctx["exchange_code"]
+    sym = ctx["symbol_code"]
+    try:
+        qty = Decimal(str(ctx["quantity"]))
+    except Exception:
+        return banner("Could not parse held quantity.", "error"), no_update
+    if qty <= 0:
+        return banner("Nothing to close — position is already flat.", "error"), no_update
+    # Use latest close price from symbol if available
+    px_df = q("""
+        SELECT close_price FROM public.symbol
+        WHERE exchange_code = :exch AND symbol_code = :sym
+    """, exch=exch, sym=sym)
+    if px_df.empty or pd.isna(px_df.iloc[0]["close_price"]):
+        return banner(
+            "No current price available for this symbol; can't auto-close. "
+            "Record a SELL manually on the Trades tab.", "error"), no_update
+    price = px_df.iloc[0]["close_price"]
+    try:
+        exec_sql("""
+            INSERT INTO public.trades
+                (portfolio_id, exchange_code, symbol_code, trade_date, side,
+                 quantity, price, fees, notes)
+            VALUES (:pid, :exch, :sym, CURRENT_DATE, 'SELL',
+                    :qty, :price, 0, :note)
+        """, pid=pid, exch=exch, sym=sym, qty=qty, price=price,
+            note="Position closed via Positions tab")
+        return banner(
+            f"Closed position: SELL {qty} {sym} @ {price}.",
+            "success"), trigger + 1
+    except Exception as e:
+        return banner(f"Database error: {e}", "error"), no_update
 
 
 # ---------------------------------------------------------------------------
@@ -1084,8 +1581,9 @@ def render_cash(_n, pf_id, _tab):
 def create_cash(n, pf_id, ttype, date, amount, ccy, notes, trigger):
     if not n:
         return no_update, no_update
-    if not all([pf_id, ttype, date, amount is not None]):
-        return banner("Fill in portfolio, type, date, and amount.", "error"), no_update
+    err = validate_cash(pf_id, ttype, date, amount)
+    if err:
+        return banner(err, "error"), no_update
     try:
         exec_sql("""
             INSERT INTO public.cash_transactions
@@ -1094,7 +1592,7 @@ def create_cash(n, pf_id, ttype, date, amount, ccy, notes, trigger):
         """, pid=pf_id, dt=date, type=ttype, amt=amount, ccy=ccy, notes=notes)
         return banner(f"Recorded {ttype} of {amount} {ccy}.", "success"), trigger + 1
     except Exception as e:
-        return banner(f"Error: {e}", "error"), no_update
+        return banner(f"Database error: {e}", "error"), no_update
 
 
 @app.callback(
@@ -1112,8 +1610,17 @@ def edit_cash(data, data_prev, trigger):
     changed = [r for r in data if by_id_prev.get(r["id"]) and by_id_prev[r["id"]] != r]
     if not changed:
         return no_update, no_update
+    errors = []
+    valid_rows = []
+    for row in changed:
+        err = validate_cash(row["portfolio_id"], row["type"], row["txn_date"],
+                            row["amount"])
+        if err:
+            errors.append(f"Cash txn #{row['id']}: {err}")
+        else:
+            valid_rows.append(row)
     try:
-        for row in changed:
+        for row in valid_rows:
             exec_sql("""
                 UPDATE public.cash_transactions
                 SET txn_date = :dt, type = :type, amount = :amt,
@@ -1121,23 +1628,42 @@ def edit_cash(data, data_prev, trigger):
                 WHERE id = :id
             """, id=row["id"], dt=row["txn_date"], type=row["type"],
                 amt=row["amount"], ccy=row.get("currency"), notes=row.get("notes"))
-        return banner(f"Updated {len(changed)} transaction(s).", "success"), trigger + 1
     except Exception as e:
-        return banner(f"Error: {e}", "error"), trigger + 1
+        errors.append(f"Database error: {e}")
+    if errors:
+        return banner(" • ".join(errors), "error"), trigger + 1
+    return banner(f"Updated {len(valid_rows)} transaction(s).", "success"), trigger + 1
+
+
+@app.callback(
+    Output("confirm-delete-ct", "displayed"),
+    Output("confirm-delete-ct", "message"),
+    Output("cash-banner", "children", allow_duplicate=True),
+    Input("ct-delete-btn", "n_clicks"),
+    State("cash-table", "selected_rows"),
+    State("cash-table", "data"),
+    prevent_initial_call=True,
+)
+def confirm_delete_cash(n, selected, data):
+    if not n:
+        return False, no_update, no_update
+    if not selected:
+        return False, no_update, banner("Select rows first.", "error")
+    return True, f"Delete {len(selected)} cash transaction(s)? This cannot be undone.", no_update
 
 
 @app.callback(
     Output("cash-banner", "children", allow_duplicate=True),
     Output("refresh-trigger", "data", allow_duplicate=True),
-    Input("ct-delete-btn", "n_clicks"),
+    Input("confirm-delete-ct", "submit_n_clicks"),
     State("cash-table", "selected_rows"),
     State("cash-table", "data"),
     State("refresh-trigger", "data"),
     prevent_initial_call=True,
 )
-def delete_cash(n, selected, data, trigger):
-    if not n or not selected:
-        return banner("Select rows first.", "error"), no_update
+def delete_cash(submit_n, selected, data, trigger):
+    if not submit_n or not selected:
+        return no_update, no_update
     ids = [data[i]["id"] for i in selected]
     try:
         with conn() as c:
@@ -1146,7 +1672,46 @@ def delete_cash(n, selected, data, trigger):
                           {"id": cid})
         return banner(f"Deleted {len(ids)} transaction(s).", "success"), trigger + 1
     except Exception as e:
-        return banner(f"Error: {e}", "error"), no_update
+        return banner(f"Database error: {e}", "error"), no_update
+
+
+@app.callback(
+    Output("cash-banner", "children", allow_duplicate=True),
+    Output("refresh-trigger", "data", allow_duplicate=True),
+    Input("ct-bulk-apply", "n_clicks"),
+    State("cash-table", "selected_rows"),
+    State("cash-table", "data"),
+    State("ct-bulk-field", "value"),
+    State("ct-bulk-value", "value"),
+    State("refresh-trigger", "data"),
+    prevent_initial_call=True,
+)
+def bulk_apply_cash(n, selected, data, field, value, trigger):
+    if not n:
+        return no_update, no_update
+    if not selected:
+        return banner("Select rows first.", "error"), no_update
+    if not field:
+        return banner("Pick a field to set.", "error"), no_update
+    if value in (None, ""):
+        return banner("Enter a value.", "error"), no_update
+    if field == "type" and value not in ("DEPOSIT", "WITHDRAWAL", "DIVIDEND",
+                                          "FEE", "INTEREST", "FX_ADJUST"):
+        return banner(f"Invalid type: {value!r}.", "error"), no_update
+    if field == "currency" and len(str(value)) != 3:
+        return banner("Currency must be a 3-letter code.", "error"), no_update
+
+    ids = [data[i]["id"] for i in selected]
+    column_sql = {"type": "type", "currency": "currency", "notes": "notes"}[field]
+    try:
+        with conn() as c:
+            for cid in ids:
+                c.execute(text(
+                    f"UPDATE public.cash_transactions SET {column_sql} = :val WHERE id = :id"),
+                    {"val": value, "id": cid})
+        return banner(f"Updated {field} on {len(ids)} transaction(s).", "success"), trigger + 1
+    except Exception as e:
+        return banner(f"Database error: {e}", "error"), no_update
 
 
 # ---------------------------------------------------------------------------
