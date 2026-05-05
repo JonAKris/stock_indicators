@@ -1861,5 +1861,5 @@ def render_info_panels(exch, sym):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     debug = os.getenv("DASH_DEBUG", "true").lower() == "true"
-    port = int(os.getenv("PORT", "8050"))
+    port = int(os.getenv("DASH_PORT", "8050"))
     app.run(debug=debug, port=port, host="0.0.0.0")
