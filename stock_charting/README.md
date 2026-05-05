@@ -10,7 +10,7 @@ python -m venv .venv && source .venv/bin/activate
 python app.py
 ```
 
-## serve with gunicorn, insure port 8000 is open if firewalled.
+## Serve with gunicorn, insure port 8000 is open if firewalled.
 
 ```bash
 gunicorn app:app --bind 0.0.0.0:8000
