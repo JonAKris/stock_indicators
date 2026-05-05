@@ -7,9 +7,6 @@ on top of the Stockman Postgres market-data warehouse.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-# edit .env with your Postgres credentials
 python app.py
 ```
 
@@ -18,10 +15,6 @@ Open http://localhost:8050.
 ## Prerequisites
 
 The schema must be loaded first. From the project root:
-
-```bash
-psql -U stockman -d stocks -f schema.sql
-```
 
 Make sure the `symbol` table is populated — the trade form's symbol dropdown
 reads from it. If it's empty, you'll have no symbols to trade against.
