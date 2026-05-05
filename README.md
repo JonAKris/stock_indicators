@@ -11,7 +11,7 @@ stock_indicators/
 ├── database.py           # psycopg2 connection pool + upsert helpers
 ├── api_client.py         # EODData REST API client (rate-limit aware)
 ├── stock_charting/
-│   ├── app.py.py         # Simple dash charting app for postgres data
+│   ├── app.py         # Simple dash charting app for postgres data
 │   ├── README.md
 ├── loaders/
 │   ├── metadata_loader.py  # Countries & Currencies (no auth required)
