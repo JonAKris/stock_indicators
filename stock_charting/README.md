@@ -8,7 +8,6 @@ on top of the Stockman Postgres market-data warehouse.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 python app.py
-
 ```
 
 ## serve with gunicorn, insure port 8000 is open if firewalled.
