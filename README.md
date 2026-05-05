@@ -17,6 +17,7 @@ stock_indicators/
 ├── sync.py               # Orchestration – full pipeline
 ├── main.py               # CLI entry point
 └── requirements.txt
+└── bulk_load_history.py  # bulk history loader
 ```
 
 ## Quick start
@@ -76,7 +77,7 @@ python main.py --verbose
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `TIMEOUT` | No | 180 | Network timeout in seconds |
-| `EODDATA_API_KEY` | **Yes** | – | Your EODData API key |
+| `EOD_API_KEY` | **Yes** | – | Your EODData API key |
 | `DB_HOST` | No | `localhost` | PostgreSQL host |
 | `DB_PORT` | No | `5432` | PostgreSQL port |
 | `DB_NAME` | No | `stocks` | Database name |
