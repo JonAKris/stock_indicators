@@ -94,7 +94,7 @@ log = logging.getLogger("eoddata-loader")
 
 REST_BASE_URL = os.getenv("EOD_REST_BASE_URL", "https://api.eoddata.com").rstrip("/")
 REST_HISTORY_PATH = os.getenv("EOD_REST_HISTORY_PATH", "/Quote/List")
-API_KEY = os.getenv("EODDATA_API_KEY", "").strip()
+API_KEY = os.getenv("EOD_API_KEY", "").strip()
 
 REQUEST_TIMEOUT = float(os.getenv("EOD_TIMEOUT", "180"))
 REQUEST_DELAY = float(os.getenv("EOD_REQUEST_DELAY", "0.25"))    # seconds between calls
