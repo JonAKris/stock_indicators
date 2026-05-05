@@ -16,15 +16,15 @@ class Config:
     BACKOFF_FACTOR: float = float(os.getenv("BACKOFF_FACTOR", "0.3"))
     
     # EODData API
-    API_KEY: str = os.environ["EODDATA_API_KEY"]
-    API_BASE_URL: str = os.getenv("EODDATA_BASE_URL", "https://api.eoddata.com/")
+    API_KEY: str = os.environ["EOD_API_KEY"]
+    API_BASE_URL: str = os.getenv("EOD_BASE_URL", "https://api.eoddata.com/")
 
     # PostgreSQL
     DB_HOST: str = os.getenv("DB_HOST", "msa1.sumo.computer")
     DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
     DB_NAME: str = os.getenv("DB_NAME", "stocks")
     DB_USER: str = os.getenv("DB_USER", "stockman")
-    DB_PASSWORD: str = os.environ["DB_PASS"]
+    DB_PASS: str = os.environ["DB_PASS"]
 
     # Sync behaviour
     # Comma-separated list of exchange codes; empty/None means all exchanges
@@ -45,5 +45,5 @@ class Config:
         return (
             f"host={self.DB_HOST} port={self.DB_PORT} "
             f"dbname={self.DB_NAME} user={self.DB_USER} "
-            f"password={self.DB_PASSWORD}"
+            f"password={self.DB_PASS}"
         )
