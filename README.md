@@ -10,13 +10,16 @@ stock_indicators/
 ├── config.py             # Config dataclass (reads .env)
 ├── database.py           # psycopg2 connection pool + upsert helpers
 ├── api_client.py         # EODData REST API client (rate-limit aware)
+├── stock_charting/
+│   ├── app.py.py         # Simple dash charting app for postgres data
+│   ├── README.md
 ├── loaders/
 │   ├── metadata_loader.py  # Countries & Currencies (no auth required)
 │   ├── exchange_loader.py  # Exchanges
 │   └── symbol_loader.py    # Symbols, Profiles, Fundamentals, Technicals, Quotes
 ├── sync.py               # Orchestration – full pipeline
 ├── main.py               # CLI entry point
-└── requirements.txt
+├── requirements.txt
 └── bulk_load_history.py  # bulk history loader
 ```
 
