@@ -1,6 +1,6 @@
 # Stock Indicators ETL
 
-Downloads market data from the [EODData API v1](https://eoddataapi.com) and stores it in a PostgreSQL database matching `schema.sql`.
+Downloads market data from the [EODData API v1](https://api.eoddata.com) and stores it in a PostgreSQL database matching `schema.sql`.
 
 ## Project layout
 
