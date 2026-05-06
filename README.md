@@ -30,7 +30,7 @@ stock_indicators/
 ```bash
 git clone https://github.com/JonAKris/stock_indicators
 cd stock_indicators
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -38,13 +38,19 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env – fill in EODDATA_API_KEY and DB_* values
+# Edit .env – fill in EOD_API_KEY and DB_* values
 ```
 
 ### 3. Apply the database schema
 
 ```bash
-sudo su postgres psql -U stockman -d stockdb -f schema.sql
+sudo su postgres
+psql
+CREATE USER stockman;
+CREATE DATABASE stocks;
+GRANT ALL PRIVILEGES ON DATABASE stocks TO USER stockman;
+\q
+sudo su postgres -c 'psql -U stockman -d stockdb -f schema.sql'
 ```
 
 ### 4. Run the sync
