@@ -46,7 +46,7 @@ cp .env.example .env
 ```bash
 sudo su postgres
 psql
-CREATE USER stockman;
+CREATE USER stockman WITH PASSWORD 'changeme';
 CREATE DATABASE stocks WITH OWNER stockman;
 GRANT ALL PRIVILEGES ON DATABASE stocks TO stockman;
 \q
