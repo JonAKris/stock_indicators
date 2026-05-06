@@ -48,7 +48,7 @@ sudo su postgres
 psql
 CREATE USER stockman;
 CREATE DATABASE stocks;
-GRANT ALL PRIVILEGES ON DATABASE stocks TO USER stockman;
+GRANT ALL PRIVILEGES ON DATABASE stocks TO stockman;
 \q
 sudo su postgres -c 'psql -U stockman -d stockdb -f schema.sql'
 ```
