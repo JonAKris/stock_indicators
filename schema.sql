@@ -323,7 +323,7 @@ CREATE VIEW public.split_adjusted_trades AS
 ALTER VIEW public.split_adjusted_trades OWNER TO stockman;
 
 --
--- Name: symbol; Type: TABLE; Schema: public; Owner: postgres
+-- Name: symbol; Type: TABLE; Schema: public; Owner: stockman
 --
 
 CREATE TABLE public.symbol (
@@ -347,10 +347,10 @@ CREATE TABLE public.symbol (
 );
 
 
-ALTER TABLE public.symbol OWNER TO postgres;
+ALTER TABLE public.symbol OWNER TO stockman;
 
 --
--- Name: symbol_profile; Type: TABLE; Schema: public; Owner: postgres
+-- Name: symbol_profile; Type: TABLE; Schema: public; Owner: stockman
 --
 
 CREATE TABLE public.symbol_profile (
@@ -375,7 +375,7 @@ CREATE TABLE public.symbol_profile (
 );
 
 
-ALTER TABLE public.symbol_profile OWNER TO postgres;
+ALTER TABLE public.symbol_profile OWNER TO stockman;
 
 --
 -- Name: portfolio_positions; Type: VIEW; Schema: public; Owner: stockman
@@ -635,7 +635,7 @@ ALTER SEQUENCE public.splits_id_seq OWNED BY public.splits.id;
 
 
 --
--- Name: symbol_fundamental; Type: TABLE; Schema: public; Owner: postgres
+-- Name: symbol_fundamental; Type: TABLE; Schema: public; Owner: stockman
 --
 
 CREATE TABLE public.symbol_fundamental (
@@ -671,10 +671,10 @@ CREATE TABLE public.symbol_fundamental (
 );
 
 
-ALTER TABLE public.symbol_fundamental OWNER TO postgres;
+ALTER TABLE public.symbol_fundamental OWNER TO stockman;
 
 --
--- Name: symbol_quote; Type: TABLE; Schema: public; Owner: postgres
+-- Name: symbol_quote; Type: TABLE; Schema: public; Owner: stockman
 --
 
 CREATE TABLE public.symbol_quote (
@@ -700,10 +700,10 @@ CREATE TABLE public.symbol_quote (
 );
 
 
-ALTER TABLE public.symbol_quote OWNER TO postgres;
+ALTER TABLE public.symbol_quote OWNER TO stockman;
 
 --
--- Name: symbol_technical; Type: TABLE; Schema: public; Owner: postgres
+-- Name: symbol_technical; Type: TABLE; Schema: public; Owner: stockman
 --
 
 CREATE TABLE public.symbol_technical (
@@ -781,7 +781,7 @@ CREATE TABLE public.symbol_technical (
 );
 
 
-ALTER TABLE public.symbol_technical OWNER TO postgres;
+ALTER TABLE public.symbol_technical OWNER TO stockman;
 
 --
 -- Name: trades_id_seq; Type: SEQUENCE; Schema: public; Owner: stockman
@@ -933,7 +933,7 @@ ALTER TABLE ONLY public.exchanges
 
 
 --
--- Name: symbol pk_symbol; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: symbol pk_symbol; Type: CONSTRAINT; Schema: public; Owner: stockman
 --
 
 ALTER TABLE ONLY public.symbol
@@ -941,7 +941,7 @@ ALTER TABLE ONLY public.symbol
 
 
 --
--- Name: symbol_fundamental pk_symbol_fundamental; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: symbol_fundamental pk_symbol_fundamental; Type: CONSTRAINT; Schema: public; Owner: stockman
 --
 
 ALTER TABLE ONLY public.symbol_fundamental
@@ -949,7 +949,7 @@ ALTER TABLE ONLY public.symbol_fundamental
 
 
 --
--- Name: symbol_profile pk_symbol_profile; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: symbol_profile pk_symbol_profile; Type: CONSTRAINT; Schema: public; Owner: stockman
 --
 
 ALTER TABLE ONLY public.symbol_profile
@@ -957,7 +957,7 @@ ALTER TABLE ONLY public.symbol_profile
 
 
 --
--- Name: symbol_quote pk_symbol_quote; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: symbol_quote pk_symbol_quote; Type: CONSTRAINT; Schema: public; Owner: stockman
 --
 
 ALTER TABLE ONLY public.symbol_quote
@@ -965,7 +965,7 @@ ALTER TABLE ONLY public.symbol_quote
 
 
 --
--- Name: symbol_technical pk_symbol_technical; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: symbol_technical pk_symbol_technical; Type: CONSTRAINT; Schema: public; Owner: stockman
 --
 
 ALTER TABLE ONLY public.symbol_technical
