@@ -50,6 +50,7 @@ CREATE USER stockman WITH PASSWORD 'changeme';
 CREATE DATABASE stocks WITH OWNER stockman;
 GRANT ALL PRIVILEGES ON DATABASE stocks TO stockman;
 \q
+# You may need a .pgpass file with a line 127.0.0.1:5432:stocks:stockman:changeme
 sudo su postgres -c 'psql -U stockman -d stockdb -f schema.sql'
 ```
 
