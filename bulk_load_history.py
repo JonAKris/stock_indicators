@@ -1,5 +1,5 @@
 """
-load_eoddata_history.py
+bulk_load_history.py
 =======================
 
 Bulk-load 5 years of end-of-day quote history into ``public.symbol_quote``
@@ -46,17 +46,17 @@ moves things around.
 Usage
 -----
     # Load every (exchange, symbol) pair listed in public.symbol:
-    python load_eoddata_history.py
+    python bulk_load_history.py
 
     # Specific exchanges / symbols (repeatable flags):
-    python load_eoddata_history.py --exchange NASDAQ --symbol AAPL --symbol MSFT
+    python bulk_load_history.py --exchange NASDAQ --symbol AAPL --symbol MSFT
 
     # Custom window (default = 5 years back to today):
-    python load_eoddata_history.py --years 10
-    python load_eoddata_history.py --start 2020-01-01 --end 2024-12-31
+    python bulk_load_history.py --years 10
+    python bulk_load_history.py --start 2020-01-01 --end 2024-12-31
 
     # Dry-run (fetch + normalize, no DB writes):
-    python load_eoddata_history.py --dry-run --exchange NASDAQ --symbol AAPL
+    python bulk_load_history.py --dry-run --exchange NASDAQ --symbol AAPL
 """
 
 from __future__ import annotations
