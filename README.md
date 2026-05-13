@@ -72,6 +72,22 @@ python main.py --interval w --days 1825
 # Debug output
 python main.py --verbose
 ```
+### 5. Bulk load quote history
+
+```bash
+# Load every (exchange, symbol) pair listed in public.symbol:
+python bulk_load_history.py
+
+# Specific exchanges / symbols (repeatable flags):
+python bulk_load_history.py --exchange NASDAQ --symbol AAPL --symbol MSFT
+
+# Custom window (default = 5 years back to today):
+python bulk_load_history.py --years 10
+python bulk_load_history.py --start 2020-01-01 --end 2024-12-31
+
+# Dry-run (fetch + normalize, no DB writes):
+python bulk_load_history.py --dry-run --exchange NASDAQ --symbol AAPL
+```
 
 ## Pipeline steps
 
