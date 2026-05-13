@@ -19,6 +19,7 @@ from typing import Any
 import dash
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from dash import Dash, Input, Output, State, dash_table, dcc, html, no_update
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -797,8 +798,8 @@ def cash_tab() -> html.Div:
 def charts_tab() -> html.Div:
     return html.Div([
         html.H3("Symbol price chart"),
-        html.P("Daily OHLC candles from symbol_quote. Optionally overlay your "
-               "buy/sell markers from a selected portfolio.",
+        html.P("Daily OHLC candles from symbol_quote with a volume subplot below. "
+               "Optionally overlay your buy/sell markers from a selected portfolio.",
                style={"color": "#666", "fontSize": "13px"}),
         html.Div([
             html.Div([
@@ -854,7 +855,7 @@ def charts_tab() -> html.Div:
                                           "marginLeft": "8px"}),
             ], style={"display": "inline-block", "verticalAlign": "top"}),
         ], style={"marginBottom": "12px"}),
-        dcc.Loading(dcc.Graph(id="price-chart", style={"height": "560px"}),
+        dcc.Loading(dcc.Graph(id="price-chart", style={"height": "720px"}),
                     type="default"),
         html.Div(id="profile-panel"),
         html.Div(id="fundamental-panel"),
@@ -1768,19 +1769,26 @@ def render_chart(exch, sym, start_date, end_date, pf_overlay, style, ma_overlays
             "Make sure symbol_quote has rows with interval_code = 'd'."
         )
 
-    fig = go.Figure()
+    # Two stacked panes: price (top, 75%) and volume (bottom, 25%), shared x-axis.
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.03,
+        row_heights=[0.75, 0.25],
+    )
+
     if style == "candle":
         fig.add_trace(go.Candlestick(
             x=df["as_of_date"],
             open=df["open_price"], high=df["high_price"],
             low=df["low_price"], close=df["close_price"],
             name=sym, showlegend=False,
-        ))
+        ), row=1, col=1)
     else:
         fig.add_trace(go.Scatter(
             x=df["as_of_date"], y=df["close_price"],
             mode="lines", name="Close", line={"width": 1.6},
-        ))
+        ), row=1, col=1)
 
     # Moving-average overlays (computed from the daily quotes in view)
     if ma_overlays:
@@ -1795,9 +1803,23 @@ def render_chart(exch, sym, start_date, end_date, pf_overlay, style, ma_overlays
                 mode="lines", name=key.upper(),
                 line={"width": 1.2, "color": color},
                 hovertemplate=f"{key.upper()}: %{{y:.2f}}<extra></extra>",
-            ))
+            ), row=1, col=1)
 
-    # Overlay trade markers if a portfolio is picked
+    # Volume bars — green when close >= open (up day), red otherwise.
+    closes = df["close_price"].astype(float)
+    opens = df["open_price"].astype(float)
+    up_mask = closes >= opens
+    bar_colors = ["#26a69a" if up else "#ef5350" for up in up_mask]
+    fig.add_trace(go.Bar(
+        x=df["as_of_date"],
+        y=df["volume"],
+        name="Volume",
+        marker={"color": bar_colors, "line": {"width": 0}},
+        showlegend=False,
+        hovertemplate="Volume: %{y:,}<extra></extra>",
+    ), row=2, col=1)
+
+    # Overlay trade markers if a portfolio is picked (price pane only)
     if pf_overlay:
         trades = fetch_trade_markers(pf_overlay, exch, sym)
         if not trades.empty:
@@ -1812,7 +1834,7 @@ def render_chart(exch, sym, start_date, end_date, pf_overlay, style, ma_overlays
                             "line": {"width": 1, "color": "#040"}},
                     hovertemplate="BUY %{customdata} @ %{y}<br>%{x}<extra></extra>",
                     customdata=buys["quantity"],
-                ))
+                ), row=1, col=1)
             if not sells.empty:
                 fig.add_trace(go.Scatter(
                     x=sells["trade_date"], y=sells["price"],
@@ -1822,20 +1844,22 @@ def render_chart(exch, sym, start_date, end_date, pf_overlay, style, ma_overlays
                             "line": {"width": 1, "color": "#400"}},
                     hovertemplate="SELL %{customdata} @ %{y}<br>%{x}<extra></extra>",
                     customdata=sells["quantity"],
-                ))
+                ), row=1, col=1)
 
     fig.update_layout(
         title=f"{exch}:{sym} — daily",
-        xaxis_title=None, yaxis_title="Price",
         xaxis_rangeslider_visible=False,
         plot_bgcolor="white",
         hovermode="x unified",
         margin={"l": 50, "r": 20, "t": 50, "b": 40},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02,
                 "xanchor": "right", "x": 1},
+        bargap=0.1,
     )
     fig.update_xaxes(showgrid=True, gridcolor="#eee")
-    fig.update_yaxes(showgrid=True, gridcolor="#eee")
+    fig.update_yaxes(showgrid=True, gridcolor="#eee", title_text="Price", row=1, col=1)
+    fig.update_yaxes(showgrid=True, gridcolor="#eee", title_text="Volume",
+                     tickformat=".2s", row=2, col=1)
     return fig
 
 
