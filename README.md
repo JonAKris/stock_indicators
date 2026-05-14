@@ -38,6 +38,8 @@ pip install -r requirements.txt
 ### 2. Configure environment
 
 ```bash
+# Register at eoddata.com (free level is available)
+# Get an API key
 cp .env.example .env
 # Edit .env – fill in EOD_API_KEY and DB_* values
 ```
