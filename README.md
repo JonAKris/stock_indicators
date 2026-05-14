@@ -20,6 +20,7 @@ stock_indicators/
 ├── sync.py               # Orchestration – full pipeline
 ├── main.py               # CLI entry point
 ├── requirements.txt
+├── schema.sql
 └── bulk_load_history.py  # bulk history loader
 ```
 
