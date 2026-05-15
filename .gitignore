@@ -1,8 +1,5 @@
 __pycache__/
 .vscode/
-/newsletter
-/venv
-cmds.txt
-v1.json
+.venv/
 .env
 .streamlit/
